@@ -4,25 +4,25 @@ package overlay
 import chisel3._
 import chisel3.util._
 
-
+class SwitchBoxIO (val n : Int, val w : Int) extends Bundle {
+  val chan_north_in = Input(Vec(n, UInt(w.W)))
+  val chan_south_in = Input(Vec(n, UInt(w.W)))
+  val chan_west_in = Input(Vec(n, UInt(w.W)))
+  val chan_east_in = Input(Vec(n, UInt(w.W)))
+  val sel_north = Input(Vec(n, UInt(2.W)))
+  val sel_south = Input(Vec(n, UInt(2.W)))
+  val sel_west = Input(Vec(n, UInt(2.W)))
+  val sel_east = Input(Vec(n, UInt(2.W)))
+  val chan_north_out = Output(Vec(n, UInt(w.W)))
+  val chan_south_out = Output(Vec(n, UInt(w.W)))
+  val chan_west_out = Output(Vec(n, UInt(w.W)))
+  val chan_east_out = Output(Vec(n, UInt(w.W)))
+}
 class SwitchBox (val n : Int, val w : Int) extends Module {
   //override val compileOptions = chisel3.core.ExplicitCompileOptions.NotStrict.copy(explicitInvalidate = false)
-  val io = IO(new Bundle {
-    val chan_north_in = Input(Vec(n, UInt(w.W)))
-    val chan_south_in = Input(Vec(n, UInt(w.W)))
-    val chan_west_in = Input(Vec(n, UInt(w.W)))
-    val chan_east_in = Input(Vec(n, UInt(w.W)))
-    val sel_north = Input(Vec(n, UInt(2.W)))
-    val sel_south = Input(Vec(n, UInt(2.W)))
-    val sel_west = Input(Vec(n, UInt(2.W)))
-    val sel_east = Input(Vec(n, UInt(2.W)))
-    val chan_north_out = Output(Vec(n, UInt(w.W)))
-    val chan_south_out = Output(Vec(n, UInt(w.W)))
-    val chan_west_out = Output(Vec(n, UInt(w.W)))
-    val chan_east_out = Output(Vec(n, UInt(w.W)))
-  })
+  val io = IO(new SwitchBoxIO(n, w))
 
-  
+
   for (i <- 0 until n) {
     val mux_north = Module(new MuxN(3, w))
     val mux_south = Module(new MuxN(3, w))

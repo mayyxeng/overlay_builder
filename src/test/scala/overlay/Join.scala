@@ -26,7 +26,7 @@ class JoinControlTester(c: JoinControl) extends PeekPokeTester(c) {
     }
     //expect(c.io.stall_out, stall_out)
   }
-}
+
 /* Run test with
   sbt 'testOnly overlay.JoinControlSpec'
 */
@@ -35,5 +35,10 @@ class JoinControlSpec extends ChiselFlatSpec {
     iotesters.Driver.execute(Array("--is-verbose"), () => new JoinControl(3)) {
       c => new JoinControlTester(c)
     } should be (true)
+  }
+}
+object JoinControlTest extends App {
+  iotesters.Driver.execute(args, () => new JoinControl(3)) {
+    c => new JoinControlTester(c)
   }
 }

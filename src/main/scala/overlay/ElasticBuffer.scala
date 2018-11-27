@@ -2,16 +2,18 @@ package overlay
 
 import chisel3._
 import chisel3.util._
+
+class ElasticBufferControlIO extends Bundle {
+  val valid_in = Input(UInt(1.W))
+  val stall_in = Input(UInt(1.W))
+  val valid_out = Output(UInt(1.W))
+  val stall_out = Output(UInt(1.W))
+  val main_ff_we = Output(UInt(1.W))  //Write enable for the second FF
+  val aux_ff_we = Output(UInt(1.W))   //Write enable for the first FF
+  val mux_sel = Output(UInt(1.W))
+}
 class ElasticBufferControl extends Module {
-    val io = IO(new Bundle {
-      val valid_in = Input(UInt(1.W))
-      val stall_in = Input(UInt(1.W))
-      val valid_out = Output(UInt(1.W))
-      val stall_out = Output(UInt(1.W))
-      val main_ff_we = Output(UInt(1.W))  //Write enable for the second FF
-      val aux_ff_we = Output(UInt(1.W))   //Write enable for the first FF
-      val mux_sel = Output(UInt(1.W))
-    })
+    val io = IO(new ElasticBufferControlIO())
 
     val sEmpty :: sHalf :: sFull :: Nil = Enum(3)
     // Note that if mux_sel is zero then data goes to main FF

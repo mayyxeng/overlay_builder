@@ -2,17 +2,19 @@ package overlay
 
 import chisel3._
 
+class MergeIO(val n : Int, val w : Int) extends Bundle {
+  val data_in_vector = Input(Vec(n, UInt(w.W)))
+  val data_out = Output(UInt(w.W))
+  val valid_out = Output(UInt(1.W))
+  val valid_in_vector = Input(Vec(n, UInt(1.W)))
+  val stall_out_vector = Output(Vec(n, UInt(1.W)))
+  val stall_in = Input(UInt(1.W))
+}
+
 class Merge(val n : Int, val w : Int) extends Module {
 
   override val compileOptions = chisel3.core.ExplicitCompileOptions.NotStrict.copy(explicitInvalidate = false)
-  val io = IO(new Bundle{
-    val data_in_vector = Input(Vec(n, UInt(w.W)))
-    val data_out = Output(UInt(w.W))
-    val valid_out = Output(UInt(1.W))
-    val valid_in_vector = Input(Vec(n, UInt(1.W)))
-    val stall_out_vector = Output(Vec(n, UInt(1.W)))
-    val stall_in = Input(UInt(1.W))
-  })
+  val io = IO(new MergeIO(n, w))
 
   val valid_in_as_word = Seq.tabulate(n)(n => io.valid_in_vector(n).toBool)
   val mux_sel = util.PriorityEncoder(valid_in_as_word)

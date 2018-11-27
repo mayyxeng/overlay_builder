@@ -4,23 +4,24 @@ package overlay
 import chisel3._
 import chisel3.util._
 
+class ConnectionBoxIO(val n : Int, val w : Int) extends Bundle {
+  val chan_north_in = Input(Vec(n, UInt(w.W)))
+  val chan_south_in = Input(Vec(n, UInt(w.W)))
+  val sel_north = Input(Vec(n, UInt(2.W)))
+  val sel_south = Input(Vec(n, UInt(2.W)))
+  val sel_west = Input(UInt((log2Ceil(n * 2 + 1)).W))
+  val sel_east = Input(UInt((log2Ceil(n * 2 + 1)).W))
+  val west_in = Input(UInt(w.W))
+  val east_in = Input(UInt(w.W))
+  val chan_north_out = Output(Vec(n, UInt(w.W)))
+  val chan_south_out = Output(Vec(n, UInt(w.W)))
+  val west_out = Output(UInt(w.W))
+  val east_out = Output(UInt(w.W))
+}
 
 class ConnectionBox (val n : Int, val w : Int) extends Module {
   //override val compileOptions = chisel3.core.ExplicitCompileOptions.NotStrict.copy(explicitInvalidate = false)
-  val io = IO(new Bundle {
-    val chan_north_in = Input(Vec(n, UInt(w.W)))
-    val chan_south_in = Input(Vec(n, UInt(w.W)))
-    val sel_north = Input(Vec(n, UInt(2.W)))
-    val sel_south = Input(Vec(n, UInt(2.W)))
-    val sel_west = Input(UInt((log2Ceil(n * 2 + 1)).W))
-    val sel_east = Input(UInt((log2Ceil(n * 2 + 1)).W))
-    val west_in = Input(UInt(w.W))
-    val east_in = Input(UInt(w.W))
-    val chan_north_out = Output(Vec(n, UInt(w.W)))
-    val chan_south_out = Output(Vec(n, UInt(w.W)))
-    val west_out = Output(UInt(w.W))
-    val east_out = Output(UInt(w.W))
-  })
+  val io = IO(new ConnectionBoxIO(n, w))
 
   for (i <- 0 until n) {
     val mux_north = Module(new MuxN(3, w))

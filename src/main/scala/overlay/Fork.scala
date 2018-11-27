@@ -2,14 +2,16 @@ package overlay
 
 import chisel3._
 
+
+class EagerForkControlIO (val n : Int) extends Bundle {
+  val valid_in = Input(UInt(1.W))
+  val stall_in_vector = Input(Vec(n, UInt(1.W)))
+  val valid_out_vector = Output(Vec(n, UInt(1.W)))
+  val stall_out = Output(UInt(1.W))
+}
 class EagerForkControl(val n : Int) extends Module {
   //override val compileOptions = chisel3.core.ExplicitCompileOptions.NotStrict.copy(explicitInvalidate = false)
-  val io = IO(new Bundle{
-    val valid_in = Input(UInt(1.W))
-    val stall_in_vector = Input(Vec(n, UInt(1.W)))
-    val valid_out_vector = Output(Vec(n, UInt(1.W)))
-    val stall_out = Output(UInt(1.W))
-  })
+  val io = IO(new EagerForkControlIO(n))
   val initVecVal = Seq.fill(n){0.U(1.W)}
   val v_reg = RegInit(VecInit(initVecVal))
   val anded_stalls = Wire(Vec(n, UInt(1.W)))
@@ -23,17 +25,12 @@ class EagerForkControl(val n : Int) extends Module {
   io.stall_out := stall_out
 }
 class EagerFork(val n : Int, val w : Int) extends Module {
-  val io = IO(new Bundle{
+  val io = IO(new EagerForkControlIO(n){
     val data_in = Input(UInt(w.W))
-    val data_out_0 = Output(UInt(w.W))
-    val data_out_1 = Output(UInt(w.W))
-    val valid_in = Input(UInt(1.W))
-    val stall_in_vector = Input(Vec(n, UInt(1.W)))
-    val valid_out_vector = Output(Vec(n, UInt(1.W)))
-    val stall_out = Output(UInt(1.W))
+    val data_out= Output(Vec(n, UInt(w.W)))
   })
-  io.data_out_0 := io.data_in
-  io.data_out_1 := io.data_in
+  val data_in_replica = Seq.fill(n){ io.data_in }
+  io.data_out := VecInit(data_in_replica)
 
   val fork_control = Module(new EagerForkControl(n))
   fork_control.io.valid_in := io.valid_in
