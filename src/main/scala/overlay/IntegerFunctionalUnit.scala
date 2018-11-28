@@ -3,7 +3,8 @@ package overlay
 import chisel3._
 import chisel3.util._
 
-class IntegerFunctionalUnitIO (val w : Int, val num_ops : Int = 8) extends Bundle{
+class IntegerFunctionalUnitIO (val w : Int, val num_ops : Int = 8)
+extends Bundle{
   val in_0 = Input(UInt(w.W))
   val in_1 = Input(UInt(w.W))
   val opcode = Input(UInt(log2Ceil(num_ops).W))

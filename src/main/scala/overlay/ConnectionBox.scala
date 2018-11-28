@@ -20,23 +20,24 @@ class ConnectionBoxIO(val n : Int, val w : Int) extends Bundle {
 }
 
 class ConnectionBox (val n : Int, val w : Int) extends Module {
-  //override val compileOptions = chisel3.core.ExplicitCompileOptions.NotStrict.copy(explicitInvalidate = false)
+  // override val compileOptions = chisel3.core.ExplicitCompileOptions.NotStrict.copy(explicitInvalidate = false)
   val io = IO(new ConnectionBoxIO(n, w))
-
+  val mux_north = Seq.fill(n){ Module(new MuxN(3, w)) }
+  val mux_south = Seq.fill(n){ Module(new MuxN(3, w)) }
   for (i <- 0 until n) {
-    val mux_north = Module(new MuxN(3, w))
-    mux_north.io.ins(0) := io.chan_south_in(i)
-    mux_north.io.ins(1) := io.east_in
-    mux_north.io.ins(2) := io.west_in
-    mux_north.io.sel := io.sel_north(i)
-    io.chan_north_out(i) := mux_north.io.out
+    // val mux_north = Module(new MuxN(3, w))
+    mux_north(i).io.ins(0) := io.chan_south_in(i)
+    mux_north(i).io.ins(1) := io.east_in
+    mux_north(i).io.ins(2) := io.west_in
+    mux_north(i).io.sel := io.sel_north(i)
+    io.chan_north_out(i) := mux_north(i).io.out
 
-    val mux_south = Module(new MuxN(3, w))
-    mux_south.io.ins(0) := io.chan_north_in(i)
-    mux_south.io.ins(1) := io.east_in
-    mux_south.io.ins(2) := io.west_in
-    mux_south.io.sel := io.sel_south(i)
-    io.chan_south_out(i) := mux_south.io.out
+    // val mux_south = Module(new MuxN(3, w))
+    mux_south(i).io.ins(0) := io.chan_north_in(i)
+    mux_south(i).io.ins(1) := io.east_in
+    mux_south(i).io.ins(2) := io.west_in
+    mux_south(i).io.sel := io.sel_south(i)
+    io.chan_south_out(i) := mux_south(i).io.out
 
   }
   val west_bound = Wire(Vec(2 * n + 1, UInt(w.W)))

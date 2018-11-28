@@ -7,7 +7,7 @@ All you can find the `overlay` package in `src` directory. Some `modules` have `
 
 If you haven't worked with `Chisel` before, head to this [tutorial](https://github.com/ucb-bar/chisel-tutorial).
 
-Every `module` has and `object` for `Verilog` generation. To generate `Verilog` simply do the following from project's parent directory:
+Every `module` has an `object` for `Verilog` generation. To generate `Verilog` simply do the following from project's parent directory:
 ```bash
 sbt 'runMain overlay.$MODULE_NAME $ARGS'
 ```
@@ -18,7 +18,7 @@ if the module has `Scala` test associated with it you can run the test using
 sbt `testOnly overlay.${Module_Name}Spec`
 ```
 
-## License
+### License
 This is free and unencumbered software released into the public domain.
 
 Anyone is free to copy, modify, publish, use, compile, sell, or
