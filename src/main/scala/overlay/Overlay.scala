@@ -2,9 +2,9 @@ package overlay
 
 
 import chisel3._
-
+import chisel3.util.log2Ceil
 class IOPads (val m : Int, val n : Int, val w : Int = 32) extends Bundle {
-  override val compileOptions = chisel3.core.ExplicitCompileOptions.NotStrict.copy(explicitInvalidate = false)
+
   val input_north = Input(Vec(n, UInt(w.W)))
   val input_south = Input(Vec(n, UInt(w.W)))
   val input_west = Input(Vec(n, UInt(w.W)))
@@ -14,22 +14,35 @@ class IOPads (val m : Int, val n : Int, val w : Int = 32) extends Bundle {
   val output_west = Output(Vec(n, UInt(w.W)))
   val output_east = Output(Vec(n, UInt(w.W)))
 }
+
 class  Overlay (val m : Int, val n : Int, val w : Int = 32, val chns : Int = 4)
 extends Module {
 
-  val io = IO(new IOPads(m, n, w))
+  val io = IO(new IOPads(m, n, w) {
+    val cb_list_top_ctrl = Input(Vec(n, new CBCTRL(chns, w)))
+    val cb_list_bottom_ctrl = Input(Vec(n, new CBCTRL(chns, w)))
+    val cb_list_left_ctrl = Input(Vec(n, new CBCTRL(chns, w)))
+    val cb_list_right_ctrl = Input(Vec(n, new CBCTRL(chns, w)))
+    val cb_list_even_ctrl = Input(Vec((m - 1) * n, new CBCTRL(chns, w)))
+    val cb_list_odd_ctrl = Input(Vec(m * (n - 1), new CBCTRL(chns, w)))
+    val sb_list_top_ctrl = Input(Vec(n - 1, new NSBCTRL(chns, w)))
+    val sb_list_bottom_ctrl = Input(Vec(n - 1, new SSBCTRL(chns, w)))
+    val sb_list_left_ctrl = Input(Vec(m - 1, new WSBCTRL(chns, w)))
+    val sb_list_right_ctrl = Input(Vec(m - 1, new ESBCTRL(chns, w)))
+    val sb_list_even_ctrl = Input(Vec((m - 1) * (n - 1), new SBCTRL(chns, w)))
+  })
   /*
 
     An overlay with m rows and n columns will actually
     have 2m + 1 rows and 2n + 1 columns because we have to
     fit CBs and SBs
     The patterns is as follows:
-      c s c s c s c s c s ... c    : (c s)*n
+      c s c s c s c s c s ... c    : c (s c) * (n - 1)
     c p c p c p c p c p c ... p c  : (c p)*n c
     s c s c s c s c s c s ... c s  : (s c)*n s
     .                     ... . .
     c p c p c p c p c p c ... p c  : (c p)*n c
-      c s c s c s c s c s ... c    : (c s)*n
+      c s c s c s c s c s ... c    : c (s c) * (n - 1)
 
     where c = ConnectionBox, s = SwitchBox and P = ProcessingElement
     in total we have :
@@ -47,102 +60,309 @@ extends Module {
 
   */
 
+  /*
+    There are 6 lists for CBs, namely the 4 list for CBs at overlay border
+    and 2 for CBs in the middle. The CBs in even rows are turned 90 degrees
+    cc-wise.
+    Also there are 5 lists for SBs. Four lists are for borders and 1 fills
+    in the middle.
+    We have only one list for PEs.
+  */
 
-  val e_cb_list = Seq.fill(m * (n + 1)) {
-    Module(new ConnectionBox(chns, w))
-  }
-  val o_cb_list = Seq.fill((m + 1) * n) {
-    Module(new ConnectionBox(chns, w))
-  }
-  val sb_list = Seq.fill((m + 1) * (n + 1) - 4) {
-    Module(new SwitchBox(chns, w))
-  }
-  vall pe_list = Seq.fill(m * n) {
+  val zero_vec_sel_cb = Seq.fill(chns) { 0.U }
+  val pe_list = Seq.fill(m * n) {
     Module(new ProcessingElement(w))
   }
 
-  // Connection PEs inputs
+  val cb_list_top = Seq.fill(n) {
+    Module(new ConnectionBox(chns ,w))
+  }
+  val cb_list_bottom = Seq.fill(n) {
+    Module(new ConnectionBox(chns, w))
+  }
+  val cb_list_left = Seq.fill(m) {
+    Module(new ConnectionBox(chns, w))
+  }
+  val cb_list_right = Seq.fill(m) {
+    Module(new ConnectionBox(chns, w))
+  }
+  val cb_list_even = Seq.fill((m - 1) * n) {
+    Module(new ConnectionBox(chns, w))
+  }
+  val cb_list_odd = Seq.fill(m * (n - 1)) {
+    Module(new ConnectionBox(chns, w))
+  }
+
+  val sb_list_top = Seq.fill(n - 1) {
+    Module(new NSwitchBox(chns, w))
+  }
+  val sb_list_bottom = Seq.fill(n - 1) {
+    Module(new SSwitchBox(chns, w))
+  }
+  val sb_list_left = Seq.fill(m - 1) {
+    Module(new WSwitchBox(chns, w))
+  }
+  val sb_list_right = Seq.fill(m - 1) {
+    Module(new ESwitchBox(chns, w))
+  }
+  val sb_list_even = Seq.fill((m - 1) * (n - 1)) {
+    Module(new SwitchBox(chns, w))
+  }
+  // This part connects inputs of PEs
   for (i <- 0 until m) {
     for (j <- 0 until n) {
-      val idx = i * n + j
-      pe_list(idx).north_in := e_cb_list(i * n + j).west_out
-      pe_list(idx).south_in := e_cb_list((i + 1) * n + j).east_out
-      pe_list(idx).west_in := o_cb_list(i * (n + 1) + j).east_out
-      pe_list(idx).east_in := o_cb_list(i * (n + 1) + j + 1).west_out
-    }
-  }
+      val pe_idx = i * n + j
+      val cb_odd_idx = i * (n - 1) + j
+      val cb_even_idx = i * n + j
 
-  for (i <- 0 until m) {
-    for (j <- 0 until n + 1) {
-      val idx = i * (n + 1) + j
       if (j == 0) {
-        if(i == 0) {
-          o_cb_list(idx).north_in := 
-        } else if(i == m - 1) {
-
-        }
-        o_cb_list(idx).east_in := io.input_west(i)
-        o_cb_list(idx).west_in := pe_list(i * n + j - 1).io.east_out
-
-      } else if (j == n) {
-
-
-
+        pe_list(pe_idx).io.west_in := cb_list_left(i).io.east_out
       } else {
-        o_cb_list(idx).east_in :=
-          pe_list(i * n + j).io.west_out
-        o_cb_list(idx).west_in :=
-          pe_list(i * n + j - 1).io.east_out
-        o_cb_list(idx).north_in :=
-          sb_list((i - 1) * (n + 1) + j).south_out
-        o_cb_list(idx).south_in :=
-          sb_list(i * (n + 1) + j).north_out
-
+        pe_list(pe_idx).io.west_in := cb_list_odd(cb_odd_idx - 1).io.east_out
+      }
+      if (j == n - 1) {
+        pe_list(pe_idx).io.east_in := cb_list_right(i).io.west_out
+      } else {
+        pe_list(pe_idx).io.east_in := cb_list_odd(cb_odd_idx).io.west_out
+      }
+      if (i == 0) {
+        pe_list(pe_idx).io.north_in := cb_list_top(j).io.west_out
+      } else {
+        pe_list(pe_idx).io.north_in :=
+          cb_list_even(cb_even_idx - n).io.west_out
+      }
+      if (i == m - 1) {
+        pe_list(pe_idx).io.south_in := cb_list_bottom(j).io.east_out
+      } else {
+        pe_list(pe_idx).io.south_in := cb_list_even(cb_even_idx).io.east_out
       }
 
+    }
+  }
+
+  // This part connects inputs of CBs in odd rows
+  for (i <- 0 until m) {
+    for (j <- 0 until n - 1) {
+      val cb_odd_idx = i * (n - 1) + j
+      val sb_idx = i * (n - 1) + j
+      val pe_idx = i * n + j
+      if (i == 0) {
+        cb_list_odd(cb_odd_idx).io.chan_north_in :=
+          sb_list_top(j).io.chan_south_out
+      } else {
+        cb_list_odd(cb_odd_idx).io.chan_north_in :=
+          sb_list_even(sb_idx - n + 1).io.chan_south_out
+      }
+      if (i == m - 1) {
+        cb_list_odd(cb_odd_idx).io.chan_south_in :=
+          sb_list_bottom(j).io.chan_north_out
+      } else {
+        cb_list_odd(cb_odd_idx).io.chan_south_in :=
+          sb_list_even(sb_idx).io.chan_north_out
+      }
+      cb_list_odd(cb_odd_idx).io.west_in := pe_list(pe_idx).io.east_out
+      cb_list_odd(cb_odd_idx).io.east_in := pe_list(pe_idx + 1).io.west_out
+      cb_list_odd(cb_odd_idx).io.sel := io.cb_list_odd_ctrl(cb_odd_idx)
 
     }
   }
 
+  // This part connects inputs of CBs in even rows.
+  for (i <- 0 until m - 1) {
+    for (j <- 0 until n) {
+      val cb_even_idx = i * n + j
+      val pe_idx = i * n + j
+      val sb_even_idx = i * (n - 1) + j
+      if (j == 0) {
+        cb_list_even(cb_even_idx).io.chan_north_in :=
+          sb_list_left(i).io.chan_east_out
+      } else {
+        cb_list_even(cb_even_idx).io.chan_north_in :=
+          sb_list_even(sb_even_idx - 1).io.chan_east_out
+      }
+      if (j == n - 1) {
+        cb_list_even(cb_even_idx).io.chan_south_in :=
+          sb_list_right(i).io.chan_west_out
+      } else {
+        cb_list_even(cb_even_idx).io.chan_south_in :=
+          sb_list_even(sb_even_idx).io.chan_west_in
+      }
+      cb_list_even(cb_even_idx).io.east_in := pe_list(pe_idx).io.south_out
+      cb_list_even(cb_even_idx).io.west_in := pe_list(pe_idx + n).io.north_out
+      cb_list_even(cb_even_idx).io.sel := io.cb_list_even_ctrl(cb_even_idx)
 
+
+    }
+  }
+  // This part connects left and right border CBs
+  for (i <- 0 until m) {
+    val cb_left_idx = i
+    val cb_right_idx = i
+    val sb_right_idx = i
+    val sb_left_idx = i
+    val pe_left_idx = i * n
+    val pe_right_idx = (i + 1) * n - 1
+    if ( i == 0) {
+      cb_list_left(cb_left_idx).io.chan_north_in :=
+        cb_list_top(0).io.chan_north_out
+      cb_list_right(cb_right_idx).io.chan_north_in :=
+        cb_list_top(n - 1).io.chan_south_out
+    } else {
+      cb_list_left(cb_left_idx).io.chan_north_in :=
+        sb_list_left(sb_left_idx - 1).io.chan_south_out
+      cb_list_right(cb_right_idx).io.chan_north_in :=
+        sb_list_right(sb_right_idx - 1).io.chan_south_out
+    }
+    if (i == m - 1) {
+      cb_list_left(cb_left_idx).io.chan_south_in :=
+        cb_list_bottom(0).io.chan_north_out
+      cb_list_right(cb_right_idx).io.chan_south_in :=
+        cb_list_bottom(n - 1).io.chan_south_out
+    } else {
+      cb_list_left(cb_left_idx).io.chan_south_in :=
+        sb_list_left(sb_left_idx).io.chan_north_out
+      cb_list_right(cb_right_idx).io.chan_south_in :=
+        sb_list_right(sb_right_idx).io.chan_north_out
+    }
+    cb_list_left(cb_left_idx).io.east_in := pe_list(pe_left_idx).io.west_out
+    cb_list_left(cb_left_idx).io.west_in := io.input_west(i)
+    cb_list_right(cb_right_idx).io.west_in := pe_list(pe_right_idx).io.east_out
+    cb_list_right(cb_right_idx).io.east_in := io.input_east(i)
+
+    cb_list_left(cb_left_idx).io.sel := io.cb_list_left_ctrl(cb_left_idx)
+    cb_list_right(cb_right_idx).io.sel := io.cb_list_right_ctrl(cb_right_idx)
+
+    io.output_west(i) := cb_list_left(cb_left_idx).io.west_out
+    io.output_east(i) := cb_list_right(cb_right_idx).io.east_out
+
+  }
+
+  // This part takes care of top and bottom border CBs
+  for (j <- 0 until n) {
+    val cb_top_idx = j
+    val cb_bottom_idx = j
+    val sb_top_idx = j
+    val sb_bottom_idx = j
+    val pe_top_idx = j
+    val pe_bottom_idx = (m - 1) * n + j
+
+    if (j == 0) {
+      cb_list_top(cb_top_idx).io.chan_north_in :=
+        cb_list_left(0).io.chan_north_out
+      cb_list_bottom(cb_bottom_idx).io.chan_north_in :=
+        cb_list_left(m - 1).io.chan_south_out
+    } else {
+      cb_list_top(cb_top_idx).io.chan_north_in :=
+        sb_list_top(sb_top_idx - 1).io.chan_east_out
+      cb_list_bottom(cb_bottom_idx).io.chan_north_in :=
+        sb_list_bottom(sb_bottom_idx - 1).io.chan_east_out
+    }
+    if (j == n - 1) {
+      cb_list_top(cb_top_idx).io.chan_south_in :=
+        cb_list_right(0).io.chan_north_out
+      cb_list_bottom(cb_bottom_idx).io.chan_south_in :=
+        cb_list_right(m - 1).io.chan_south_out
+    } else {
+      cb_list_top(cb_top_idx).io.chan_south_in :=
+        sb_list_top(sb_top_idx).io.chan_west_out
+      cb_list_bottom(cb_bottom_idx).io.chan_south_in :=
+        sb_list_bottom(cb_bottom_idx).io.chan_west_out
+    }
+    cb_list_top(cb_top_idx).io.east_in := io.input_north(j)
+    cb_list_bottom(cb_bottom_idx).io.west_in := io.input_south(j)
+
+    cb_list_top(cb_top_idx).io.west_in := pe_list(pe_top_idx).io.north_out
+    cb_list_bottom(cb_bottom_idx).io.east_in :=
+      pe_list(pe_bottom_idx).io.south_out
+
+    cb_list_top(cb_top_idx).io.sel :=
+      io.cb_list_top_ctrl(cb_top_idx)
+    cb_list_bottom(cb_bottom_idx).io.sel :=
+      io.cb_list_bottom_ctrl(cb_bottom_idx)
+
+    io.output_north(j) := cb_list_top(cb_top_idx).io.east_out
+    io.output_south(j) := cb_list_bottom(cb_bottom_idx).io.west_out
+  }
+
+  // This part connects even rows sb inputs
+  for (i <- 0 until m - 1) {
+    for (j <- 0 until n - 1) {
+      val sb_idx = i * (n - 1) + j
+      val cb_even_idx =  i * n + j
+      val cb_odd_idx = i * (n - 1) + j
+      sb_list_even(sb_idx).io.chan_west_in :=
+        cb_list_even(cb_even_idx).io.chan_south_out
+      sb_list_even(sb_idx).io.chan_east_in :=
+        cb_list_even(cb_even_idx + 1).io.chan_north_out
+      sb_list_even(sb_idx).io.chan_north_in :=
+        cb_list_odd(cb_odd_idx).io.chan_south_out
+      sb_list_even(sb_idx).io.chan_south_in :=
+        cb_list_odd(cb_odd_idx + n - 1).io.chan_north_out
+      sb_list_even(sb_idx).io.sel :=
+        io.sb_list_even_ctrl(sb_idx)
+    }
+  }
+
+  // This part connects top and bottom SBs
+  for (j <- 0 until n - 1) {
+    val sb_top_idx = j
+    val sb_bottom_idx = j
+    val cb_top_idx = j
+    val cb_bottom_idx = (m - 1) * (n - 1) + j
+
+    sb_list_top(sb_top_idx).io.chan_west_in :=
+      cb_list_top(cb_top_idx).io.chan_south_out
+    sb_list_bottom(sb_bottom_idx).io.chan_west_in :=
+      cb_list_bottom(cb_top_idx).io.chan_south_out
+
+    sb_list_top(sb_top_idx).io.chan_east_in :=
+      cb_list_top(cb_top_idx + 1).io.chan_north_out
+    sb_list_bottom(sb_bottom_idx).io.chan_east_in :=
+      cb_list_bottom(cb_top_idx + 1).io.chan_north_out
+
+    sb_list_top(sb_top_idx).io.chan_south_in :=
+      cb_list_odd(cb_top_idx).io.chan_north_out
+    sb_list_bottom(sb_bottom_idx).io.chan_north_in :=
+      cb_list_odd(cb_bottom_idx).io.chan_south_out
+
+    sb_list_top(sb_top_idx).io.sel :=
+      io.sb_list_top_ctrl(sb_top_idx)
+    sb_list_bottom(sb_bottom_idx).io.sel :=
+      io.sb_list_bottom_ctrl(sb_bottom_idx)
+  }
+
+  // This part connects left and right border SBs
+  for (i <- 0 until m - 1) {
+    val sb_left_idx = i
+    val sb_right_idx = i
+    val cb_left_idx = i * n
+    val cb_right_idx = (i + 1) * n - 1
+
+    sb_list_left(sb_left_idx).io.chan_east_in :=
+      cb_list_even(cb_left_idx).io.chan_north_out
+    sb_list_right(sb_right_idx).io.chan_west_in :=
+      cb_list_even(cb_right_idx).io.chan_south_out
+
+    sb_list_left(sb_left_idx).io.chan_north_in :=
+      cb_list_left(i).io.chan_south_out
+    sb_list_right(sb_right_idx).io.chan_north_in :=
+      cb_list_right(i).io.chan_south_out
+
+    sb_list_left(sb_left_idx).io.chan_south_in :=
+      cb_list_left(i + 1).io.chan_north_out
+    sb_list_right(sb_right_idx).io.chan_south_in :=
+      cb_list_right(i + 1).io.chan_north_out
+
+    sb_list_left(sb_left_idx).io.sel :=
+      io.sb_list_left_ctrl(sb_left_idx)
+    sb_list_right(sb_right_idx).io.sel :=
+      io.sb_list_right_ctrl(sb_right_idx)
+  }
   for (i <- 0 until (2 * m + 1)){
     for (j <- 0 until (2 * n + 1)) {
       if (i % 2 == 0 && j % 2 == 0){
-        if ( i == 0 ){
-
-        }
         print(s"s ")
-
       } else if ( i % 2 == 0 && j % 2 == 1) {
-        /*
-          Even rows with odd columns correspond to ConnectionBoxes
-          enlosed by SwitchBoxes from sides and IO or PEs from
-          below and above.
-          In the border rows, (i == 0) || (i == 2m), and border columns
-          (j == 0) || (j == 2n), the CBs at the either end are directly
-          connected to colliding border column or row.
-        */
-        if (i == 0 && j == 0) {
-          /* NW corner */
-          connection_box_list(i).io.chan_west_in :=
-            connection_box_list(i + n).io.chan_north_out
-
-          connection_box_list(i).io.chan_north_in :=
-            io.input_north(i)
-
-          connection_box_list(i).io.chan_east_in :=
-            connection_box_list(i + 1).io.chan_west_out
-
-          connection_box_list(i).io.chan_south_in :=
-            connection_box_list(n + 1 + j).io.chan_north_out
-
-          io.input_north(j) := connection_box_list(i).io.chan_north_out
-
-
-        } else if (i == 0 && j == 2 * n) {
-
-          connection_box_list(i * n + j / 2)
-        }
         print(s"c ")
       } else if ( i % 2 == 1 && j % 2 == 0 ) {
         print(s"c ")

@@ -9,8 +9,8 @@ class ProcessingElementIO (val w : Int) extends Bundle {
   val south_in = Input(UInt(w.W))
   val west_in = Input(UInt(w.W))
   val east_in = Input(UInt(w.W))
-  val north_out = Input(UInt(w.W))
-  val south_out = Input(UInt(w.W))
+  val north_out = Output(UInt(w.W))
+  val south_out = Output(UInt(w.W))
   val west_out = Output(UInt(w.W))
   val east_out = Output(UInt(w.W))
 }
