@@ -4,24 +4,113 @@ package overlay
 import chisel3._
 import chisel3.util._
 
-// class SwitchBoxIO (val n : Int, val w : Int, val ways : Int = 4)
-// extends Bundle {
-//   val chan_in_vec = Input(Vec(ways, Vec(n, UInt(w.W))))
-//   val sel_vec = Input(Vec(ways, Vec(n, UInt(log2Ceil(ways - 1).W))))
-//   val chan_out_vec = Output(Vec(ways, Vec(n, UInt(w.W))))
-// }
-//
-// class SwitchBox (val n : Int, val w : Int, val ways : Int = 4) extends Module {
-//   val io = IO(new SwitchBoxIO(n, w, ways))
-//
-//   val mux_list = Seq.fill(n * ways){ Module(new MuxN(ways - 1, w)) }
-//   for (i <- 0 until n) {
-//     for (j <- 0 until ways) {
-//       mux_list(i * ways + j).io.ins :=
-//     }
-//   }
-//
-// }
+
+class SBDCTRL (val chns: Int) extends Bundle {
+  val cond_north = Vec(chns, UInt(2.W))
+  val cond_south = Vec(chns, UInt(2.W))
+  val cond_east = Vec(chns, UInt(2.W))
+  val cond_west = Vec(chns, UInt(2.W))
+}
+class SBDIO (val chns: Int, val wdth: Int) extends Bundle {
+  val north = new DecoupledChannel(chns, wdth)
+  val south = new DecoupledChannel(chns, wdth)
+  val west = new DecoupledChannel(chns, wdth)
+  val east = new DecoupledChannel(chns, wdth)
+  val ctrl = Input(new SBDCTRL(chns))
+}
+class SBD (val chns: Int, val wdth: Int) extends Module {
+  val io = IO(new SBDIO(chns, wdth))
+
+  // Branch orders are NSWE
+  val branch_list_north = Seq.fill(chns) {
+    Module(new BranchDecoupled(3, wdth))
+  }
+  val branch_list_south = Seq.fill(chns) {
+    Module(new BranchDecoupled(3, wdth))
+  }
+  val branch_list_west = Seq.fill(chns) {
+    Module(new BranchDecoupled(3, wdth))
+  }
+  val branch_list_east = Seq.fill(chns) {
+    Module(new BranchDecoupled(3, wdth))
+  }
+
+  val branch_out_north = Seq.fill(chns) {
+     Wire(Vec(3, DecoupledIO(UInt(wdth.W))))
+  }
+  val branch_out_south = Seq.fill(chns) {
+     Wire(Vec(3, DecoupledIO(UInt(wdth.W))))
+  }
+  val branch_out_west = Seq.fill(chns) {
+     Wire(Vec(3, DecoupledIO(UInt(wdth.W))))
+  }
+  val branch_out_east = Seq.fill(chns) {
+     Wire(Vec(3, DecoupledIO(UInt(wdth.W))))
+  }
+
+  val merge_list_north = Seq.fill(chns) {
+    Module(new MergeDecoupled(3, wdth))
+  }
+  val merge_list_south = Seq.fill(chns) {
+    Module(new MergeDecoupled(3, wdth))
+  }
+  val merge_list_west = Seq.fill(chns) {
+    Module(new MergeDecoupled(3, wdth))
+  }
+  val merge_list_east = Seq.fill(chns) {
+    Module(new MergeDecoupled(3, wdth))
+  }
+
+  for (i <- 0 until chns) {
+    branch_out_north(i) <> branch_list_north(i).io.output_vector
+    branch_out_south(i) <> branch_list_south(i).io.output_vector
+    branch_out_west(i) <> branch_list_west(i).io.output_vector
+    branch_out_east(i) <> branch_list_east(i).io.output_vector
+    branch_list_north(i).io.conditional := io.ctrl.cond_north(i)
+    branch_list_south(i).io.conditional := io.ctrl.cond_south(i)
+    branch_list_west(i).io.conditional := io.ctrl.cond_west(i)
+    branch_list_east(i).io.conditional := io.ctrl.cond_east(i)
+    io.north.in(i) <> branch_list_north(i).io.input
+    io.south.in(i) <> branch_list_south(i).io.input
+    io.west.in(i) <> branch_list_west(i).io.input
+    io.east.in(i) <> branch_list_east(i).io.input
+
+    merge_list_north(i).io.output <> io.north.out(i)
+    merge_list_south(i).io.output <> io.south.out(i)
+    merge_list_west(i).io.output <> io.west.out(i)
+    merge_list_east(i).io.output <> io.east.out(i)
+
+    merge_list_north(i).io.input_vector(0) <>
+      branch_out_south(i)(2)
+    merge_list_north(i).io.input_vector(1) <>
+      branch_out_west(i)(1)
+    merge_list_north(i).io.input_vector(2) <>
+      branch_out_east(i)(0)
+
+    merge_list_south(i).io.input_vector(0) <>
+      branch_out_north(i)(0)
+    merge_list_south(i).io.input_vector(1) <>
+      branch_out_west(i)(2)
+    merge_list_south(i).io.input_vector(2) <>
+      branch_out_east(i)(1)
+
+    merge_list_west(i).io.input_vector(0) <>
+      branch_out_north(i)(1)
+    merge_list_west(i).io.input_vector(1) <>
+      branch_out_south(i)(0)
+    merge_list_west(i).io.input_vector(2) <>
+      branch_out_east(i)(2)
+
+    merge_list_east(i).io.input_vector(0) <>
+      branch_out_north(i)(2)
+    merge_list_east(i).io.input_vector(1) <>
+      branch_out_south(i)(1)
+    merge_list_east(i).io.input_vector(2) <>
+      branch_out_west(i)(0)
+
+  }
+
+}
 class NSBCTRL(val n : Int, val w : Int) extends Bundle {
 
   val south = Vec(n, UInt(1.W))
@@ -236,4 +325,5 @@ object SwitchBox extends App {
   chisel3.Driver.execute(args, () => new SSwitchBox(2, 32))
   chisel3.Driver.execute(args, () => new WSwitchBox(2, 32))
   chisel3.Driver.execute(args, () => new ESwitchBox(2, 32))
+  chisel3.Driver.execute(args, () => new SBD(64, 32))
 }

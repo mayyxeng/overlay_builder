@@ -1,7 +1,7 @@
 package overlay
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{log2Ceil, Decoupled}
 
 class BranchControlIO (val n: Int) extends Bundle {
   val conditional = Input(UInt(log2Ceil(n).W))
@@ -18,6 +18,24 @@ class BranchControl (val n : Int) extends Module {
   io.valid_out(io.conditional) := 1.U(1.W)
   io.stall_out := io.stall_in(io.conditional)
 
+}
+
+class BranchIODecoupled (val n: Int, val w: Int) extends Bundle {
+  val conditional = Input(UInt(log2Ceil(n).W))
+  val input = Flipped(Decoupled(UInt(w.W)))
+  val output_vector = Vec(n, Decoupled(UInt(w.W)))
+
+}
+class BranchDecoupled (val n: Int, val w: Int) extends Module {
+  val io = IO(new BranchIODecoupled(n, w))
+
+  for (i <- 0 until n) {
+    io.output_vector(i).valid := false.B
+    io.output_vector(i).bits := 0.U
+  }
+  io.input.ready := io.output_vector(io.conditional).ready
+  io.output_vector(io.conditional).valid := true.B
+  io.output_vector(io.conditional).bits := io.input.bits
 }
 class Branch (val n : Int, val w : Int) extends Module {
   val io = IO(new BranchControlIO(n) {
@@ -41,4 +59,5 @@ object BranchControl extends App {
 
 object Branch extends App {
   chisel3.Driver.execute (args, () => new Branch(3 ,32))
+  chisel3.Driver.execute (args, () => new BranchDecoupled(3 ,32))
 }
