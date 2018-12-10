@@ -11,13 +11,13 @@ class MergeIO(val n : Int, val w : Int) extends Bundle {
   val stall_out_vector = Output(Vec(n, UInt(1.W)))
   val stall_in = Input(UInt(1.W))
 }
-class MergeIODecoupled(val n: Int, val w: Int) extends Bundle {
+class MergeDecoupledIO(val n: Int, val w: Int) extends Bundle {
   val input_vector = Flipped(Vec(n, Decoupled(UInt(w.W))))
   val output = Decoupled(UInt(w.W))
 }
 
 class MergeDecoupled(val n: Int, val w: Int) extends Module {
-  val io = IO(new MergeIODecoupled(n, w))
+  val io = IO(new MergeDecoupledIO(n, w))
 
   val selection_seq = Seq.tabulate(n) (n => (n.U, io.input_vector(n).bits))
   val valid_in_as_word = Seq.tabulate(n) (n => io.input_vector(n).valid)

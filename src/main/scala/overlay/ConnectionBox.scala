@@ -85,7 +85,7 @@ class DecoupledConnection(val num: Int, val wdth: Int) extends Bundle {
   val connection = Vec(num, Decoupled(UInt(wdth.W)))
 }
 class CBODCTRL (val chns: Int, val cncs: Int) extends Bundle {
-  val cond = Vec(2 * chns, UInt(log2Ceil(cncs).W))
+  val cond = Vec(2 * chns, UInt(log2Ceil(cncs + 1).W))
 }
 class CBIDCTRL (val chns: Int, val cncs: Int) extends Bundle {
   val cond = Vec(cncs, UInt(log2Ceil(2 * chns).W))
@@ -106,14 +106,15 @@ class CBIDIO (val chns: Int, val cncs: Int, val wdth: Int) extends Bundle {
 class CBOD (val chns: Int, val cncs: Int, val wdth: Int) extends Module {
 
   val io = IO(new CBODIO(chns, cncs, wdth))
-
+  
   val branch_list = Seq.fill(2 * chns) {
     Module( new BranchDecoupled(cncs + 1, wdth))
   }
 
-  val branched_connections_list = Seq.fill (2 * chns) {
-    Wire(Vec(cncs, DecoupledIO(UInt(wdth.W))))
+  val merge_list = Seq.fill(cncs) {
+    Module(new MergeDecoupled(2 * chns, wdth))
   }
+
   for (j <- 0 until chns) {
     branch_list(j).io.input <> io.north.in(j)
     branch_list(j).io.conditional := io.ctrl.cond(j)
@@ -125,26 +126,17 @@ class CBOD (val chns: Int, val cncs: Int, val wdth: Int) extends Module {
 
     io.north.out(j) <> branch_list(j + chns).io.output_vector(0)
     for (k <- 0 until cncs) {
-      branched_connections_list(j)(k) <>
+      //print(s"$k\n")
+
+      merge_list(k).io.input_vector(j) <>
         branch_list(j).io.output_vector(k + 1)
-      branched_connections_list(j + chns)(k) <>
+      merge_list(k).io.input_vector(j + chns) <>
         branch_list(j + chns).io.output_vector(k + 1)
     }
   }
 
-  val merge_list = Seq.fill(cncs) {
-    Module(new MergeDecoupled(2 * chns, wdth))
-  }
-
   for (i <- 0 until cncs) {
-
     merge_list(i).io.output <> io.out.connection(i)
-    for ( j <- 0 until chns) {
-      merge_list(i).io.input_vector(j) <>
-        branched_connections_list(j)(i)
-      merge_list(i).io.input_vector(j + chns) <>
-        branched_connections_list(j + chns)(i)
-    }
   }
 }
 
@@ -181,6 +173,6 @@ class CBID (val chns: Int, val cncs: Int, val wdth: Int) extends Module {
 object ConnectionBox extends App {
 
   chisel3.Driver.execute(args, () => new ConnectionBox(2, 32))
-  chisel3.Driver.execute(args, () => new CBOD(3, 2, 32))
-  chisel3.Driver.execute(args, () => new CBID(16, 8, 32))
+  chisel3.Driver.execute(args, () => new CBOD(4, 1, 32))
+  chisel3.Driver.execute(args, () => new CBID(4, 1, 32))
 }

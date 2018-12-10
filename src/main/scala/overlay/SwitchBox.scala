@@ -111,6 +111,67 @@ class SBD (val chns: Int, val wdth: Int) extends Module {
   }
 
 }
+
+class SBD3CTRL(val chns: Int) extends Bundle {
+  val cond_dir0 = Vec(chns, UInt(1.W))
+  val cond_dir1 = Vec(chns, UInt(1.W))
+  val cond_dir2 = Vec(chns, UInt(1.W))
+}
+class SBD3IO(val chns: Int, val wdth: Int) extends Bundle {
+  val dir0 = new DecoupledChannel(chns, wdth)
+  val dir1 = new DecoupledChannel(chns, wdth)
+  val dir2 = new DecoupledChannel(chns, wdth)
+  val ctrl = Input(new SBD3CTRL(chns))
+}
+class SBD3(val chns: Int, val wdth: Int) extends Module {
+  val io = IO(new SBD3IO(chns, wdth))
+  def makeBranchList () = Seq.fill(chns) {
+    Module (new BranchDecoupled(2, wdth))
+  }
+  def makeMergeList () = Seq.fill(chns) {
+    Module (new MergeDecoupled(2, wdth))
+  }
+
+  val branch_list_dir0 = makeBranchList()
+  val branch_list_dir1 = makeBranchList()
+  val branch_list_dir2 = makeBranchList()
+  val merge_list_dir0 = makeMergeList()
+  val merge_list_dir1 = makeMergeList()
+  val merge_list_dir2 = makeMergeList()
+
+  for(i <- 0 until chns) {
+    branch_list_dir0(i).io.input <> io.dir0.in(i)
+    branch_list_dir1(i).io.input <> io.dir1.in(i)
+    branch_list_dir2(i).io.input <> io.dir2.in(i)
+
+
+    branch_list_dir0(i).io.conditional := io.ctrl.cond_dir0(i)
+    branch_list_dir1(i).io.conditional := io.ctrl.cond_dir1(i)
+    branch_list_dir2(i).io.conditional := io.ctrl.cond_dir2(i)
+
+    merge_list_dir0(i).io.output <> io.dir0.out(i)
+    merge_list_dir1(i).io.output <> io.dir1.out(i)
+    merge_list_dir2(i).io.output <> io.dir2.out(i)
+
+    merge_list_dir0(i).io.input_vector(0) <>
+      branch_list_dir1(i).io.output_vector(1)
+    merge_list_dir0(i).io.input_vector(1) <>
+      branch_list_dir2(i).io.output_vector(0)
+
+    merge_list_dir1(i).io.input_vector(0) <>
+      branch_list_dir0(i).io.output_vector(0)
+    merge_list_dir1(i).io.input_vector(1) <>
+      branch_list_dir2(i).io.output_vector(1)
+
+    merge_list_dir2(i).io.input_vector(0) <>
+      branch_list_dir0(i).io.output_vector(1)
+    merge_list_dir2(i).io.input_vector(1) <>
+      branch_list_dir1(i).io.output_vector(0)
+
+  }
+}
+
+
 class NSBCTRL(val n : Int, val w : Int) extends Bundle {
 
   val south = Vec(n, UInt(1.W))
@@ -325,5 +386,6 @@ object SwitchBox extends App {
   chisel3.Driver.execute(args, () => new SSwitchBox(2, 32))
   chisel3.Driver.execute(args, () => new WSwitchBox(2, 32))
   chisel3.Driver.execute(args, () => new ESwitchBox(2, 32))
-  chisel3.Driver.execute(args, () => new SBD(64, 32))
+  chisel3.Driver.execute(args, () => new SBD(4, 32))
+  chisel3.Driver.execute(args, () => new SBD3(2, 8))
 }

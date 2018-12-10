@@ -2,7 +2,7 @@ package overlay
 
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util._
 class IOPads (val m : Int, val n : Int, val w : Int = 32) extends Bundle {
 
   val input_north = Input(Vec(n, UInt(w.W)))
@@ -14,69 +14,123 @@ class IOPads (val m : Int, val n : Int, val w : Int = 32) extends Bundle {
   val output_west = Output(Vec(n, UInt(w.W)))
   val output_east = Output(Vec(n, UInt(w.W)))
 }
-class BDCTRL(val chns: Int, val cncs: Int) extends Bundle {
+class BDGCTRL(val chns: Int, val cncs: Int) extends Bundle{
   val cbo = new CBODCTRL(chns, cncs)
   val cbi = new CBIDCTRL(chns, cncs)
+}
+class BlockDecoupledGenericIO(val chns: Int, val cncs: Int,
+  val wdth: Int) extends Bundle{
+
+  val north = new DecoupledChannel(chns, wdth)
+  val east = new DecoupledChannel(chns, wdth)
+  val ctrl = Input(new BDGCTRL(chns, cncs))
+}
+
+class BlockDecoupledGeneric(val chns: Int, val cncs: Int,
+  val wdth: Int) extends Module {
+
+  val io = IO(new BlockDecoupledGenericIO(chns, cncs, wdth){
+    val cbosb = new DecoupledChannel(chns, wdth)
+    val cbisb = new DecoupledChannel(chns, wdth)
+  })
+
+  val connection_box_in = Module(new CBID(chns, cncs, wdth))
+  val connection_box_out = Module(new CBOD(chns, cncs, wdth))
+  val compute_unit = Module(new CU(cncs, wdth))
+
+  connection_box_out.io.north <=> io.north
+  connection_box_out.io.out <> compute_unit.io.input
+  connection_box_out.io.south <=> io.cbosb
+  connection_box_out.io.ctrl := io.ctrl.cbo
+
+  connection_box_in.io.in <> compute_unit.io.output
+  connection_box_in.io.west <=> io.cbisb
+  connection_box_in.io.east <=> io.east
+  connection_box_in.io.ctrl := io.ctrl.cbi
+
+}
+class BDCTRL(chns: Int, cncs: Int) extends BDGCTRL(chns, cncs) {
   val sb = new SBDCTRL(chns)
 }
-class BlockDecoupledIO(val chns: Int, val cncs: Int,
-  val wdth: Int) extends Bundle {
-  val north = new DecoupledChannel(chns, wdth)
+class BlockDecoupledIO(chns: Int, cncs: Int, wdth: Int) extends
+  BlockDecoupledGenericIO(chns, cncs, wdth) {
   val south = new DecoupledChannel(chns, wdth)
   val west = new DecoupledChannel(chns, wdth)
-  val east = new DecoupledChannel(chns, wdth)
-  val ctrl = Input(new BDCTRL(chns, cncs))
+  override val ctrl = Input(new BDCTRL(chns, cncs))
 }
 class BlockDecoupled(val chns: Int = 4, val cncs: Int = 4,
   val wdth: Int = 32) extends Module {
 
   val io = IO(new BlockDecoupledIO(chns, cncs, wdth))
 
-  val connection_box_in = Module(new CBID(chns, cncs, wdth))
-  val connection_box_out = Module(new CBOD(chns, cncs, wdth))
+  val generic_block = Module(new BlockDecoupledGeneric(chns, cncs, wdth))
   val switch_box = Module(new SBD(chns, wdth))
-  val compute_unit = Module(new CU(cncs, wdth))
 
-  connection_box_out.io.out <> compute_unit.io.input
-  connection_box_out.io.south.out <> switch_box.io.north.in
-  connection_box_out.io.south.in <> switch_box.io.north.out
-
-  connection_box_in.io.in <> compute_unit.io.output
-
-  connection_box_in.io.west <> switch_box.io.east
-
-  io.north <=> connection_box_out.io.north
-  io.south <=> switch_box.io.south
+  generic_block.io.north <=> io.north
+  generic_block.io.east <=> io.east
+  generic_block.io.ctrl.cbo := io.ctrl.cbo
+  generic_block.io.ctrl.cbi := io.ctrl.cbi
+  generic_block.io.cbosb <> switch_box.io.north
+  generic_block.io.cbisb <> switch_box.io.east
   io.west <=> switch_box.io.west
-  io.east <=> connection_box_in.io.east
-
-
-  connection_box_in.io.ctrl := io.ctrl.cbi
-  connection_box_out.io.ctrl := io.ctrl.cbo
+  io.south <=> switch_box.io.south
   switch_box.io.ctrl := io.ctrl.sb
 
-
 }
-class ODIO (val rws: Int, val cls: Int,
+class BDBCTRL(chns: Int, cncs: Int) extends BDGCTRL(chns, cncs) {
+  val sb = new SBD3CTRL(chns)
+}
+class BlockDecoupledBorderIO(chns: Int, cncs: Int, wdth: Int) extends
+  BlockDecoupledGenericIO(chns, cncs, wdth) {
+  val sbout = new DecoupledChannel(chns, wdth)
+  override val ctrl = Input(new BDBCTRL(chns, cncs))
+}
+class BlockDecoupledBorder(val chns: Int, val cncs: Int,
+  val wdth: Int) extends Module {
+
+  val io = IO(new BlockDecoupledBorderIO(chns, cncs, wdth))
+
+  val generic_block = Module(new BlockDecoupledGeneric(chns, cncs, wdth))
+  val switch_box = Module(new SBD3(chns, wdth))
+
+  generic_block.io.cbosb <> switch_box.io.dir0
+  generic_block.io.cbisb <> switch_box.io.dir1
+
+  generic_block.io.north <=> io.north
+  generic_block.io.east <=> io.east
+
+  switch_box.io.dir2 <=> io.sbout
+
+  switch_box.io.ctrl := io.ctrl.sb
+  generic_block.io.ctrl.cbo := io.ctrl.cbo
+  generic_block.io.ctrl.cbi := io.ctrl.cbi
+}
+class ODCCTRL(val rws: Int, val cls: Int,
+  val chns: Int, val cncs: Int) extends Bundle {
+
+  val core = Vec(rws * cls, new BDCTRL(chns, cncs))
+}
+class ODCIO (val rws: Int, val cls: Int,
   val wdth: Int, val chns: Int, val cncs: Int) extends Bundle {
     val north = Vec(cls, new DecoupledChannel(chns, wdth))
     val south = Vec(cls, new DecoupledChannel(chns, wdth))
     val west = Vec(cls, new DecoupledChannel(chns, wdth))
     val east = Vec(cls, new DecoupledChannel(chns, wdth))
-    val ctrl = Input(Vec(rws * cls, new BDCTRL(chns, cncs)))
+    val ctrl = Input(new ODCCTRL(rws, cls, chns, cncs))
   }
-class OverlayDecoupled(val rws:Int, val cls: Int, val wdth: Int = 32,
+class OverlayDecoupledCore(val rws:Int, val cls: Int, val wdth: Int = 32,
   val chns: Int = 4, val cncs: Int = 4) extends Module {
 
-  val io = IO(new ODIO(rws, cls, wdth, chns, cncs))
-  val blocks = Seq.fill(rws * cls) {
+  val io = IO(new ODCIO(rws, cls, wdth, chns, cncs))
+  val blocks = Seq.fill((rws) * (cls)) {
     Module(new BlockDecoupled(chns, cncs, wdth))
   }
 
-  for (i <- 0 until rws) {
-    for (j <- 0 until cls) {
+
+  for (i <- 0 until rws ) {
+    for (j <- 0 until cls ) {
       val idx = i * cls + j
-      blocks(idx).io.ctrl := io.ctrl(idx)
+      blocks(idx).io.ctrl := io.ctrl.core(idx)
       if (i == 0) {
         blocks(idx).io.north <=> io.north(j)
       } else {
@@ -101,6 +155,119 @@ class OverlayDecoupled(val rws:Int, val cls: Int, val wdth: Int = 32,
     }
   }
 }
+class IOPBCTRL(val chns: Int) extends Bundle {
+  val cbi = new CBIDCTRL(chns, 1)
+  val cbo = new CBODCTRL(chns, 1)
+}
+class IOPadBlock(val chns: Int, val wdth: Int) extends Module {
+
+  val io = IO(new Bundle {
+    val in = Flipped(Decoupled(UInt(wdth.W)))
+    val out = Decoupled(UInt(wdth.W))
+    val dir0 = new DecoupledChannel(chns, wdth)
+    val dir1 = new DecoupledChannel(chns, wdth)
+    val ctrl = Input(new IOPBCTRL(chns))
+  })
+
+  val cbo = Module(new CBOD(chns, 1, wdth))
+  val cbi = Module(new CBID(chns, 1, wdth))
+
+  cbo.io.out.connection(0) <> io.out
+  cbi.io.in.connection(0) <> io.in
+
+  cbo.io.north <> cbi.io.west
+
+  io.dir0 <=> cbo.io.south
+  io.dir1 <=> cbi.io.east
+  cbo.io.ctrl := io.ctrl.cbo
+  cbi.io.ctrl := io.ctrl.cbi
+}
+
+class ODTIO(val rws: Int, val cls: Int,
+  val wdth: Int, val chns: Int, val cncs: Int) extends Bundle {
+
+  val north = Vec(cls, new DecoupledChannel(chns, wdth))
+  val east = Vec(cls, new DecoupledChannel(chns, wdth))
+  val ctrl = Input(new ODCCTRL(rws - 1, cls - 1, chns, cncs){
+    val left = Vec(rws, new BDBCTRL(chns, cncs))
+    val bottom = Vec(cls, new BDBCTRL(chns, cncs))
+    val corner = new BDGCTRL(chns, cncs)
+  })
+
+}
+class OverlayDecoupledTrimmed(val rws:Int, val cls: Int, val wdth: Int = 32,
+  val chns: Int = 4, val cncs: Int = 4) extends Module {
+
+  val io = IO(new ODTIO(rws, cls, wdth, chns, cncs))
+
+  val left_blocks = Seq.fill(rws - 1) {
+    Module(new BlockDecoupledBorder(chns, cncs, wdth))
+  }
+  val bottom_blocks = Seq.fill(cls - 1) {
+    Module(new BlockDecoupledBorder(chns, cncs, wdth))
+  }
+  val corner_block = Module(new BlockDecoupledGeneric(chns, cncs, wdth))
+  corner_block.io.cbosb <> corner_block.io.cbisb
+  corner_block.io.ctrl := io.ctrl.corner
+  val core_blocks = Module(
+    new OverlayDecoupledCore(rws - 1, cls - 1, wdth, chns, cncs))
+  core_blocks.io.ctrl.core := io.ctrl.core
+
+  for (i <- 0 until rws - 1) {
+    left_blocks(i).io.east <> core_blocks.io.west(i)
+    left_blocks(i).io.ctrl := io.ctrl.left(i)
+    if (i == 0) {
+      left_blocks(i).io.north <=> io.north(0)
+    } else {
+      left_blocks(i).io.north <> left_blocks(i - 1).io.sbout
+    }
+    if (i == rws - 2) {
+      left_blocks(i).io.sbout <> corner_block.io.north
+    } else {
+      left_blocks(i).io.sbout <> left_blocks(i + 1).io.north
+    }
+    io.east(i) <=> core_blocks.io.east(i)
+    // if (i == rws - 2) {
+    //   left_blocks(i).io.sbout <> corner_block.io.north
+    // } else {
+    //   left_blocks(i).io.sbout <> left_blocks(i + 1).io.north
+    // }
+  }
+
+  for (j <- 0 until cls - 1) {
+
+    bottom_blocks(j).io.north <> core_blocks.io.south(j)
+    bottom_blocks(j).io.ctrl := io.ctrl.bottom(j)
+    if (j == 0) {
+      bottom_blocks(j).io.sbout <> corner_block.io.east
+    } else {
+      bottom_blocks(j).io.sbout <> bottom_blocks(j - 1).io.east
+    }
+    if(j == cls - 2) {
+      bottom_blocks(j).io.east <=> io.east(cls - 1)
+
+    } else {
+      bottom_blocks(j).io.east <> bottom_blocks(j + 1).io.sbout
+    }
+    io.north(j + 1) <=> core_blocks.io.north(j)
+  }
+}
+
+// class OverlayDecoupled(
+//                         val rws: Int,
+//                         val cls, Int,
+//                         val wdth: Int,
+//                         val chcns: Int,
+//                         val cncs: Int,
+//                         val sx: Int,
+//                         val sy: Int,
+//                         val ix: Int,
+//                         val iy: Int) extends Module{
+//
+//
+//
+//   val io = IO()
+// }
 class  Overlay (val m : Int, val n : Int, val w : Int = 32, val chns : Int = 4)
 extends Module {
 
@@ -462,10 +629,14 @@ extends Module {
 
 object Overlay extends App {
 
-  chisel3.Driver.execute(args, () => new Overlay(2,2, 8, 4))
+  chisel3.Driver.execute(args, () => new Overlay(10,10,32, 32))
 
 }
 object OverlayDecoupled extends App {
-  chisel3.Driver.execute(args, () => new BlockDecoupled(4, 4, 32))
-  chisel3.Driver.execute(args, () => new OverlayDecoupled(4, 4, 32, 4, 4))
+  // chisel3.Driver.execute(args, () => new IOPadBlock(4, 32))
+  // chisel3.Driver.execute(args, () => new BlockDecoupledGeneric(4, 4, 32))
+  // chisel3.Driver.execute(args, () => new BlockDecoupled(4, 4, 32))
+  // chisel3.Driver.execute(args, () => new BlockDecoupledBorder(4, 4, 32))
+  // chisel3.Driver.execute(args, () => new OverlayDecoupledCore(2, 2, 32, 4, 4))
+  chisel3.Driver.execute(args, () => new OverlayDecoupledTrimmed(2, 2, 32, 4, 4))
 }

@@ -1,6 +1,23 @@
 package overlay
 
 import chisel3._
+import chisel3.util.{DecoupledIO, Decoupled}
+
+// class JoinDecoupledIO(val n: Int, val w: Int) extends Bundle {
+//   val input_vector = Flipped(Vec(n, Decoupled(UInt(w.W))))
+//   val output = Decoupled(UInt(w.W))
+// }
+// class JoinDecouped(val n, Int, val w: Int) extends Module {
+//   val io = IO(new JoinDecoupedIO(n, w))
+//
+//   val valid_in_vec = Seq.tabulate(n) {n => io.input_vector(n).valid}
+//   val valid_reduced = valid_in_vec.reduce(_ & _)
+//   val unsafe_ready = (io.output.ready & valid_reduced)
+//   for(i <- 0 until n) {
+//     io.input_vector(i).ready := io.input_vector(i).valid & (~unsafe_ready)
+//   }
+//   io.output.ready := valid_reduced
+// }
 class JoinControlIO (val n : Int) extends Bundle {
   val valid_in_vector = Input(Vec(n, UInt(1.W)))
   val stall_out_vector = Output(Vec(n, UInt(1.W)))
