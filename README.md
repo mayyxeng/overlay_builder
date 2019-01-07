@@ -18,6 +18,13 @@ if the module has `Scala` test associated with it you can run the test using
 sbt `testOnly overlay.${Module_Name}Spec`
 ```
 
+##Out of Memory Exception
+Overlay generation usually requires more than 1GBs of memory which is the default memory size for the underlaying JVM in sbt.
+Therefore it is better to start sbt with more memory. To do this, run:
+```bash
+export SBT_OPTS="-Xmx4G"
+sbt
+```
 ### License
 This is free and unencumbered software released into the public domain.
 

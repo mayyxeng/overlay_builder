@@ -3,6 +3,7 @@ package overlay
 
 import chisel3._
 import chisel3.util._
+
 class IOPads (val m : Int, val n : Int, val w : Int = 32) extends Bundle {
 
   val input_north = Input(Vec(n, UInt(w.W)))
@@ -29,6 +30,17 @@ class BlockDecoupledGenericIO(val chns: Int, val cncs: Int,
 class BlockDecoupledGeneric(val chns: Int, val cncs: Int,
   val wdth: Int) extends Module {
 
+  class CTRL extends Bundle{
+    val cbo = new CBODCTRL(chns, cncs)
+    val cbi = new CBIDCTRL(chns, cncs)
+  }
+  class InOut(val chns: Int, val cncs: Int,
+    val wdth: Int) extends Bundle{
+
+    val north = new DecoupledChannel(chns, wdth)
+    val east = new DecoupledChannel(chns, wdth)
+    val ctrl = Input(new CTRL)
+  }
   val io = IO(new BlockDecoupledGenericIO(chns, cncs, wdth){
     val cbosb = new DecoupledChannel(chns, wdth)
     val cbisb = new DecoupledChannel(chns, wdth)
@@ -117,7 +129,7 @@ class ODCIO (val rws: Int, val cls: Int,
     val west = Vec(cls, new DecoupledChannel(chns, wdth))
     val east = Vec(cls, new DecoupledChannel(chns, wdth))
     val ctrl = Input(new ODCCTRL(rws, cls, chns, cncs))
-  }
+}
 class OverlayDecoupledCore(val rws:Int, val cls: Int, val wdth: Int = 32,
   val chns: Int = 4, val cncs: Int = 4) extends Module {
 
@@ -183,16 +195,19 @@ class IOPadBlock(val chns: Int, val wdth: Int) extends Module {
   cbi.io.ctrl := io.ctrl.cbi
 }
 
+class ODTCTRL(rws: Int, cls: Int , chns: Int, cncs: Int)
+extends ODCCTRL(rws, cls , chns, cncs){
+  val left = Vec(rws, new BDBCTRL(chns, cncs))
+  val bottom = Vec(cls, new BDBCTRL(chns, cncs))
+  val corner = new BDGCTRL(chns, cncs)
+}
 class ODTIO(val rws: Int, val cls: Int,
   val wdth: Int, val chns: Int, val cncs: Int) extends Bundle {
 
   val north = Vec(cls, new DecoupledChannel(chns, wdth))
-  val east = Vec(cls, new DecoupledChannel(chns, wdth))
-  val ctrl = Input(new ODCCTRL(rws - 1, cls - 1, chns, cncs){
-    val left = Vec(rws, new BDBCTRL(chns, cncs))
-    val bottom = Vec(cls, new BDBCTRL(chns, cncs))
-    val corner = new BDGCTRL(chns, cncs)
-  })
+  val east = Vec(rws, new DecoupledChannel(chns, wdth))
+
+  val ctrl = Input(new ODTCTRL(rws - 1, cls - 1, chns, cncs))
 
 }
 class OverlayDecoupledTrimmed(val rws:Int, val cls: Int, val wdth: Int = 32,
@@ -253,21 +268,197 @@ class OverlayDecoupledTrimmed(val rws:Int, val cls: Int, val wdth: Int = 32,
   }
 }
 
-// class OverlayDecoupled(
-//                         val rws: Int,
-//                         val cls, Int,
-//                         val wdth: Int,
-//                         val chcns: Int,
-//                         val cncs: Int,
-//                         val sx: Int,
-//                         val sy: Int,
-//                         val ix: Int,
-//                         val iy: Int) extends Module{
-//
-//
-//
-//   val io = IO()
-// }
+
+class IOPBarCTRL (val lgnth: Int, val chns: Int, val num: Int) extends Bundle{
+  val sb = Vec(lgnth - 1, new SBD3CTRL(chns))
+  val pad = Vec(num, new IOPBCTRL(chns))
+}
+
+
+/** @brief IOPadBar class to limit the number of GPIOs for the
+ *  OvelayDecoupledTrimmed Class
+ *  @param lngth the length of the bar, equals the number of rows or columns in
+ *               the overlay module
+ *  @param wdth bit width for the overlay
+ *  @param chns number of channels in the overlay, this is the VPR's
+ *              channel length times 2
+ *  @param strt start position of the IOPadBlocks in the IOPadBar
+ *  @param intrvl interval between IOPadBlocks in the bar
+ */
+class IOPadBar (val lngth: Int, val wdth: Int, val chns: Int, val strt: Int,
+  val intrvl: Int) extends Module {
+  val correction: Int = if ((lngth - strt) % (intrvl + 1) != 0) 1 else 0
+  val num: Int = (lngth - strt) / (intrvl + 1) + correction.toInt
+  println(s"IOPadBar with $num i/os of length $lngth and interval $intrvl")
+  for (j <- 0 until lngth){
+    val pad_idx = PadIndex(j)
+    print(s"$pad_idx,")
+  }
+  println("")
+  val io = IO(new Bundle {
+    val gpi = Vec(num, Flipped(Decoupled(UInt(wdth.W))))
+    val gpo = Vec(num, Decoupled(UInt(wdth.W)))
+    val ovio = Vec(lngth, new DecoupledChannel(chns, wdth))
+    val tail = new DecoupledChannel(chns, wdth)
+    val ctrl = Input(new IOPBarCTRL(lngth, chns, num))
+  })
+
+  def PadIndex(iter: Int): Int =
+    if ((iter - strt) % (intrvl + 1) == 0)
+      (iter - strt) / (intrvl + 1)
+    else
+      -1
+
+  val sb_list = Seq.fill(lngth - 1) {
+    Module(new SBD3(chns, wdth))
+  }
+  val pad_list = Seq.fill(num) {
+    Module(new IOPadBlock(chns, wdth))
+  }
+
+  for (j <- 0 until lngth - 1) {
+    val pad_idx = PadIndex(j + 1)
+    if (j == lngth - 2)
+      if (pad_idx != -1){
+        sb_list(j).io.dir2 <> pad_list(pad_idx).io.dir0
+        pad_list(pad_idx).io.dir1 <=> io.tail
+      } else
+        sb_list(j).io.dir2 <=> io.tail
+    else
+      if (pad_idx != -1)
+        sb_list(j).io.dir2 <> pad_list(pad_idx).io.dir0
+      else {
+        //println(j)
+        sb_list(j).io.dir2 <> sb_list(j + 1).io.dir0
+      }
+  }
+
+  for (j <- 0 until lngth - 1) {
+    val pad_idx = PadIndex(j)
+    if (j == 0)
+      if (pad_idx != -1) {
+        sb_list(j).io.dir0 <> pad_list(pad_idx).io.dir1
+        pad_list(pad_idx).io.dir0 <=> io.ovio(j)
+      } else {
+        sb_list(j).io.dir0 <=> io.ovio(j)
+      }
+    else
+      if (pad_idx != -1)
+        sb_list(j).io.dir0 <> pad_list(pad_idx).io.dir1
+      else
+        sb_list(j).io.dir0 <> sb_list(j - 1).io.dir2
+  }
+
+  for (j <- 0 until lngth - 1) {
+    sb_list(j).io.dir1 <=> io.ovio(j + 1)
+    sb_list(j).io.ctrl := io.ctrl.sb(j)
+  }
+
+  for (j <- 0 until num) {
+    pad_list(j).io.ctrl := io.ctrl.pad(j)
+    pad_list(j).io.in <> io.gpi(j)
+    io.gpo(j) <> pad_list(j).io.out
+  }
+}
+
+
+/** A wrapper for the class OverlayDecoupledTrimmed.
+ *  This class wraps the OvelayDecoupledTrimmed class into an Overlay
+ *  with custom number of I/O pins that is specified by the user.
+ *  It is necessary to reduce the number of I/Os so that it could fit in
+ *  a FPGA or any other hardware setting. Excluding the controll signals
+ *  OverlayDecoupledTrimmed has (wdth + 2) * (rws + cls) io bits as I/O.
+ *  @param rws: number of rows of blocks
+ *  @param cls: number of columns of blocks
+ *  @param wdth: number of bits in data lanes
+ *  @param chns: number of channels in global routing network. Channels go
+ *               in two directions, for example each switch box with chns = 2
+ *               has 2 (wdth + 2) bits comming in and 2(wdth + 2) bits comming
+ *               out at each port. In VPRs terms, chns = route_chan_width / 2
+ *  @param cncs: number of incoming and/or outgoing connections from each
+ *               cumpute unit. cncs = 2 means that 2(wdth + 2) bits are going
+ *               into each compute unit and 2(wdth + 2) bits are comming out of
+ *               each compute unit.
+ *  @param sx: start x index for the horizontal(top) IOPads array. blocks are
+ *             indexed starting from top-left and end at bottom-right. sx = 0
+ *             means that IOPads will be placed from the first possible location
+ *             (top-left).
+ *  @param ix: increment x for top IOPads. Indicates the distance between two
+ *             consecutive IOPads in the x direction. ix = 0 means IOPads are
+ *             placed one after the other with no empty space in between.
+ *  @param sy: start y for right IOPads. Same as sx but for the vertical(right)
+ *             IOPads.
+ *  @param iy: same as ix but for right IOPads.
+ *
+ */
+class ODCPCTRL (
+                 val rws: Int,
+                 val cls: Int,
+                 val chns: Int,
+                 val cncs: Int,
+                 val nx: Int,
+                 val ny: Int
+               )
+ extends Bundle{
+   val overlay = new ODTCTRL(rws - 1, cls - 1, chns, cncs)
+   val pad_x = new IOPBarCTRL(cls, chns, nx)
+   val pad_y = new IOPBarCTRL(rws, chns, ny)
+ }
+class ODCPIO (
+               val rws: Int,
+               val cls: Int,
+               val wdth: Int,
+               val chns: Int,
+               val cncs: Int,
+               val nx: Int,
+               val ny: Int)
+ extends Bundle{
+
+   val in_top = Flipped(Vec(nx, Decoupled(UInt(wdth.W))))
+   val out_top = Vec(nx, Decoupled(UInt(wdth.W)))
+   val in_right = Flipped(Vec(ny, Decoupled(UInt(wdth.W))))
+   val out_right = Vec(ny, Decoupled(UInt(wdth.W)))
+   val ctrl = Input(new ODCPCTRL(rws, cls, chns, cncs, nx, ny))
+
+}
+class OverlayDecoupledCustomPins(
+                                  val rws: Int,
+                                  val cls: Int,
+                                  val wdth: Int,
+                                  val chns: Int,
+                                  val cncs: Int,
+                                  val sx: Int,
+                                  val ix: Int,
+                                  val sy: Int,
+                                  val iy: Int)
+extends Module{
+
+  val pad_x = Module(new IOPadBar(cls, wdth, chns, sx, ix))
+  val pad_y = Module(new IOPadBar(rws, wdth, chns, sy, iy))
+  val overlay = Module(new OverlayDecoupledTrimmed(rws, cls, wdth, chns, cncs))
+  val nx = pad_x.num
+  val ny = pad_y.num
+  val io = IO(new ODCPIO(rws, cls, wdth, chns, cncs, nx, ny))
+
+  pad_x.io.tail <> pad_y.io.tail
+
+
+  pad_y.io.gpi <> io.in_right
+  pad_y.io.gpo <> io.out_right
+
+  pad_x.io.gpi <> io.in_top
+  pad_x.io.gpo <> io.out_top
+
+  pad_x.io.ctrl := io.ctrl.pad_x
+  pad_y.io.ctrl := io.ctrl.pad_y
+
+  overlay.io.ctrl := io.ctrl.overlay
+  for (j <- 0 until cls)
+    overlay.io.north(j) <> pad_x.io.ovio(j)
+  for (i <- 0 until rws)
+    overlay.io.east(i) <> pad_y.io.ovio(i)
+}
+
 class  Overlay (val m : Int, val n : Int, val w : Int = 32, val chns : Int = 4)
 extends Module {
 
@@ -627,16 +818,28 @@ extends Module {
   }
 }
 
+
 object Overlay extends App {
 
   chisel3.Driver.execute(args, () => new Overlay(10,10,32, 32))
 
 }
 object OverlayDecoupled extends App {
+  //chisel3.Driver.execute(args, () => new IOPadBar(9, 32, 4, 1, 3))
+  chisel3.Driver.execute(args, () => new OverlayDecoupledCustomPins(8, 8, 32, 4, 4, 0, 1, 0, 1))
   // chisel3.Driver.execute(args, () => new IOPadBlock(4, 32))
-  // chisel3.Driver.execute(args, () => new BlockDecoupledGeneric(4, 4, 32))
+  chisel3.Driver.execute(args, () => new BlockDecoupledGeneric(4, 4, 32))
   // chisel3.Driver.execute(args, () => new BlockDecoupled(4, 4, 32))
   // chisel3.Driver.execute(args, () => new BlockDecoupledBorder(4, 4, 32))
   // chisel3.Driver.execute(args, () => new OverlayDecoupledCore(2, 2, 32, 4, 4))
-  chisel3.Driver.execute(args, () => new OverlayDecoupledTrimmed(2, 2, 32, 4, 4))
+  //chisel3.Driver.execute(args, () => new OverlayDecoupledTrimmed(2, 2, 32, 4, 4))
 }
+// val rws: Int,
+// val cls: Int,
+// val wdth: Int,
+// val chns: Int,
+// val cncs: Int,
+// val sx: Int,
+// val ix: Int,
+// val sy: Int,
+// val iy: Int)
