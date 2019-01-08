@@ -18,6 +18,7 @@ class IOPads (val m : Int, val n : Int, val w : Int = 32) extends Bundle {
 class BDGCTRL(val chns: Int, val cncs: Int) extends Bundle{
   val cbo = new CBODCTRL(chns, cncs)
   val cbi = new CBIDCTRL(chns, cncs)
+  val cu = new CUCTRL(cncs)
 }
 class BlockDecoupledGenericIO(val chns: Int, val cncs: Int,
   val wdth: Int) extends Bundle{
@@ -60,6 +61,7 @@ class BlockDecoupledGeneric(val chns: Int, val cncs: Int,
   connection_box_in.io.east <=> io.east
   connection_box_in.io.ctrl := io.ctrl.cbi
 
+  compute_unit.io.ctrl := io.ctrl.cu
 }
 class BDCTRL(chns: Int, cncs: Int) extends BDGCTRL(chns, cncs) {
   val sb = new SBDCTRL(chns)
@@ -82,6 +84,7 @@ class BlockDecoupled(val chns: Int = 4, val cncs: Int = 4,
   generic_block.io.east <=> io.east
   generic_block.io.ctrl.cbo := io.ctrl.cbo
   generic_block.io.ctrl.cbi := io.ctrl.cbi
+  generic_block.io.ctrl.cu := io.ctrl.cu
   generic_block.io.cbosb <> switch_box.io.north
   generic_block.io.cbisb <> switch_box.io.east
   io.west <=> switch_box.io.west
@@ -116,6 +119,7 @@ class BlockDecoupledBorder(val chns: Int, val cncs: Int,
   switch_box.io.ctrl := io.ctrl.sb
   generic_block.io.ctrl.cbo := io.ctrl.cbo
   generic_block.io.ctrl.cbi := io.ctrl.cbi
+  generic_block.io.ctrl.cu := io.ctrl.cu
 }
 class ODCCTRL(val rws: Int, val cls: Int,
   val chns: Int, val cncs: Int) extends Bundle {
@@ -826,7 +830,7 @@ object Overlay extends App {
 }
 object OverlayDecoupled extends App {
   //chisel3.Driver.execute(args, () => new IOPadBar(9, 32, 4, 1, 3))
-  chisel3.Driver.execute(args, () => new OverlayDecoupledCustomPins(8, 8, 32, 4, 4, 0, 1, 0, 1))
+  chisel3.Driver.execute(args, () => new OverlayDecoupledCustomPins(8, 8, 32, 4, 4, 0, 3, 0, 3))
   // chisel3.Driver.execute(args, () => new IOPadBlock(4, 32))
   chisel3.Driver.execute(args, () => new BlockDecoupledGeneric(4, 4, 32))
   // chisel3.Driver.execute(args, () => new BlockDecoupled(4, 4, 32))

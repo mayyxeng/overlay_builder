@@ -2,6 +2,37 @@ package overlay
 
 import chisel3._
 import chisel3.util._
+
+
+class CrossBarDecoupledIO (val in_count: Int, val out_count: Int, val w: Int)
+extends Bundle {
+  val inputs = Vec(in_count, Flipped(Decoupled(UInt(w.W))))
+  val outputs = Vec(out_count, Decoupled(UInt(w.W)))
+  val ctrl = Input(Vec(in_count, UInt(log2Ceil(out_count).W)))
+}
+class CrossBarDecoupled (val in_count: Int, val out_count: Int, val w: Int)
+extends Module {
+  val io = IO(new CrossBarDecoupledIO(in_count, out_count, w))
+
+  val branch_list = Seq.fill(in_count) {
+    Module(new BranchDecoupled(out_count, w))
+  }
+  val merge_list = Seq.fill(out_count) {
+    Module(new MergeDecoupled(in_count, w))
+  }
+
+  for (i <- 0 until in_count) {
+    branch_list(i).io.input <> io.inputs(i)
+    branch_list(i).io.conditional := io.ctrl(i)
+  }
+  for (i <- 0 until out_count) {
+    io.outputs(i) <> merge_list(i).io.output
+    for (j <- 0 until in_count) {
+      merge_list(i).io.input_vector(j) <> branch_list(j).io.output_vector(i)
+    }
+  }
+
+}
 /**
   *@brief
   * Control matrix is symmetric, so we should be able keep half of it
@@ -49,4 +80,5 @@ class CrossBar (val n : Int, val m : Int, val w : Int) extends Module {
 object CrossBar extends App {
 
   chisel3.Driver.execute(args, () => new CrossBar(3, 3, 32))
+  chisel3.Driver.execute(args, () => new CrossBarDecoupled(3, 3, 32))
 }

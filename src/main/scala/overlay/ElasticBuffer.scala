@@ -93,9 +93,31 @@ class ElasticBuffer(val w : Int) extends Module {
   aux_ff_we := controller.io.aux_ff_we
   io.data_out := main_ff
 }
+
+class ElasticBufferDecoupledIO (val w: Int) extends Bundle {
+  val input = Flipped(Decoupled(UInt(w.W)))
+  val output = Decoupled(UInt(w.W))
+}
+
+class ElasticBufferDecoupled (val w: Int) extends Module {
+
+  val io = IO(new ElasticBufferDecoupledIO(w))
+
+  val buffer = Module(new ElasticBuffer(w))
+
+  buffer.io.data_in := io.input.bits
+  buffer.io.valid_in := io.input.valid
+  io.input.ready := ~buffer.io.stall_out
+
+  buffer.io.stall_in := ~io.output.ready
+  io.output.bits := buffer.io.data_out
+  io.output.valid := buffer.io.valid_out
+}
+
 object ElasticBufferControl extends App {
   chisel3.Driver.execute(args, () => new ElasticBufferControl())
 }
 object ElasticBuffer extends App {
   chisel3.Driver.execute(args, () => new ElasticBuffer(32))
+  chisel3.Driver.execute(args, () => new ElasticBufferDecoupled(32))
 }

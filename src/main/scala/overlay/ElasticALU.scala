@@ -17,7 +17,7 @@ class ElasticALU (val w : Int) extends Module {
 
   val entry_join = Module(new Join(2, w))
   val alu = Module(new IntegerFunctionalUnit(w))
-  
+
   entry_join.io.stall_in := io.stall_in
   entry_join.io.valid_in_vector := io.valid_in_vector
   io.valid_out := entry_join.io.valid_out
